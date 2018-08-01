@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 from collections import deque
 from contextlib import contextmanager
 import curses
@@ -7,7 +7,8 @@ import enum
 import random
 import time
 
-TICK = 0.1
+hertz = 10 # Updates per second
+TICK = 1/hertz
 
 
 @enum.unique
@@ -43,10 +44,17 @@ DIRECTION_MAP = {
     curses.KEY_DOWN: Direction.DOWN,
     curses.KEY_LEFT: Direction.LEFT,
     curses.KEY_RIGHT: Direction.RIGHT,
+
     ord("w"): Direction.UP,
     ord("a"): Direction.LEFT,
     ord("d"): Direction.RIGHT,
     ord("s"): Direction.DOWN,
+
+    ord("h"): Direction.LEFT,
+    ord("j"): Direction.DOWN,
+    ord("k"): Direction.UP,
+    ord("l"): Direction.RIGHT,
+
     curses.ERR: Direction.DEFAULT,
 }
 
@@ -101,6 +109,10 @@ class Snek:
     def alive(self):
         return self._alive
 
+    @property
+    def footprint(self):
+        return [self.head] + list(self.tail)
+
 
 def _trans_pos(screen, pos):
     height, _ = screen.getmaxyx()
@@ -132,16 +144,16 @@ def draw_apple(screen, apple):
     screen.addstr(*apple, "@", curses.color_pair(Color.APPLE.value))
 
 
-def gen_position(screen):
+def gen_position(screen, invalid):
     height, width = screen.getmaxyx()
-    return random.randrange(1, height - 2), random.randrange(1, width - 2)
+    possible = {(y, x) for y in range(1, height-2) for x in range(1, width-2)} - invalid
+    return random.choice(list(possible))
 
 
 def init(screen):
     screen.clear()
     curses.init_pair(Color.APPLE.value, curses.COLOR_RED, curses.COLOR_BLACK)
     curses.init_pair(Color.SNEK.value, curses.COLOR_GREEN, curses.COLOR_BLACK)
-    screen.nodelay(True)
     height, width = screen.getmaxyx()
     for x in range(width - 1):
         screen.addstr(0, x, "#", curses.color_pair(Color.DEFAULT.value))
@@ -151,10 +163,14 @@ def init(screen):
         screen.addstr(y, 0, "#", curses.color_pair(Color.DEFAULT.value))
         screen.addstr(y, width - 1, "#", curses.color_pair(Color.DEFAULT.value))
 
-    snek = Snek(Direction.UP, *gen_position(screen))
-    apple = gen_position(screen)
+    snek_head = gen_position(screen, set())
+    snek = Snek(Direction.UP, *_trans_pos(screen, snek_head))
+    apple = gen_position(screen, {snek_head})
+
     draw_apple(screen, apple)
     draw_snek(screen, snek)
+    snek.direction = DIRECTION_MAP.get(screen.getch(), Direction.DEFAULT)
+    screen.nodelay(True)
     return snek, apple
 
 
@@ -177,10 +193,12 @@ def snek(stdscr):
                 continue
             elif (y, x) == apple:
                 snek.eat()
-                apple = gen_position(screen)
-                draw_apple(screen, apple)
+                occupied = [_trans_pos(screen, pos) for pos in snek.footprint]
+                apple = gen_position(screen, set(occupied))
 
             draw_snek(screen, snek)
+            draw_apple(screen, apple)
+
         process = time.process_time() - start
         time.sleep(max(TICK - process, 0))
 
